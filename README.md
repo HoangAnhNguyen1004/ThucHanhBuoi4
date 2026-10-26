@@ -1,97 +1,160 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# StudyManager — Thực hành 4
 
-# Getting Started
+Ứng dụng quản lý học tập sử dụng React Native CLI, React Navigation,
+AsyncStorage, NetInfo và json-server 0.17.4.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Chạy Android
 
-## Step 1: Start Metro
+Cài thư viện:
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+```bash
+npm install
+```
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+Terminal 1 — mock API:
 
-```sh
-# Using npm
+```bash
+npx json-server --watch db.json --host 0.0.0.0 --port 3000 --delay 800
+```
+
+Terminal 2 — Metro:
+
+```bash
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
+Terminal 3 — chạy ứng dụng:
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
+```bash
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
+## Cấu hình API
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+BASE_URL trong src/config.ts:
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+- Android Emulator: http://10.0.2.2:3000
+- Điện thoại thật: http://IP_LAN_MAY_TINH:3000
+- iOS Simulator: http://localhost:3000
 
-```sh
-bundle install
+Điện thoại thật và máy tính phải cùng mạng.
+Cho phép cổng 3000 qua firewall nếu cần.
+
+## Luồng dữ liệu
+
+flowchart TD
+    S["Màn hình"] --> H["Hook / Context"]
+    H --> V["Service / HTTP client"]
+    V --> A["REST API"]
+    H <--> C["Cache / Outbox"]
+    A --> V --> H --> S
 ```
 
-Then, and every time you update your native dependencies, run:
+- Màn hình gọi hook/context; hook lấy dữ liệu từ cache rồi gọi service để yêu cầu API.
+- Khi GET thành công, dữ liệu phản hồi được ghi vào cache; khi offline, giao diện vẫn dùng cache.
+- Thao tác ghi được đưa vào outbox và đồng bộ qua service khi có mạng; dữ liệu trả về cập nhật cache rồi giao diện.
+- Màn hình không gọi `fetch` hoặc `AsyncStorage` trực tiếp. Service gọi HTTP client; storage chỉ làm việc với AsyncStorage.
+- Context chia sẻ dữ liệu giữa các tab để thay đổi ở một tab cập nhật ở các tab khác.
 
-```sh
-bundle exec pod install
-```
+## Cache trước, mạng sau
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+Dữ liệu cache có dạng:
 
-```sh
-# Using npm
-npm run ios
+{ "data": ..., "savedAt": "ISO timestamp" }
 
-# OR using Yarn
-yarn ios
-```
+Ứng dụng hiển thị cache trước rồi gọi API khi có mạng.
+Cache quá TTL vẫn được dùng khi offline; TTL không làm mất dữ liệu cũ.
+Mỗi lần GET thành công đều lưu cache mới.
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+Cache chi tiết có thể lấy bản ghi từ cache danh sách nếu chưa mở chi tiết
+trước đó.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Hàng đợi offline
 
-## Step 3: Modify your app
+Thao tác gồm:
+- Đổi trạng thái bài tập.
+- Thêm bài tập.
+- Sửa thông tin cá nhân.
 
-Now that you have successfully run the app, let's make changes!
+Outbox lưu:
+id, method, url, body, createdAt, resource, entityId.
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+Giao diện được tính từ dữ liệu cache cộng các thao tác chưa đồng bộ.
+Vì vậy dữ liệu offline và nhãn "Chưa đồng bộ" vẫn còn sau khi mở lại app.
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+Hàng đợi gửi theo FIFO.
+Thao tác lỗi sẽ chặn các thao tác sau và được giữ để thử lại.
+Đồng bộ chạy khi có mạng trở lại, khi app trở về foreground,
+khi bấm "Đồng bộ ngay", và thử lại mỗi 15 giây khi app đang hoạt động.
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+Bài tập tạo offline có ID riêng do client cấp.
+Trước POST, ứng dụng kiểm tra ID trên server để tránh tạo trùng khi retry.
 
-## Congratulations! :tada:
+## Optimistic update
 
-You've successfully run and modified your React Native App. :partying_face:
+Trạng thái bài tập đổi ngay khi bấm.
 
-### Now what?
+Nếu thao tác vừa thực hiện online nhận lỗi HTTP:
+- Xóa thao tác đó khỏi overlay.
+- Khôi phục dữ liệu trước thao tác.
+- Hiện thông báo lỗi.
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+Nếu mất kết nối hoặc timeout:
+- Giữ thao tác trong outbox.
+- Hiện "Chưa đồng bộ".
+- Thử lại khi kết nối phục hồi.
 
-# Troubleshooting
+## Xử lý xung đột
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+Khi đồng bộ một thao tác `PATCH` trong outbox, ứng dụng GET bản ghi hiện tại trên server rồi so sánh `server.updatedAt` với `action.body.updatedAt` (thời điểm sửa offline).
 
-# Learn More
+- Nếu `server.updatedAt` mới hơn, giữ dữ liệu server, cập nhật cache, bỏ thao tác xung đột khỏi outbox và thông báo cho người dùng.
+- Nếu không, gửi PATCH với dữ liệu trong outbox, cập nhật cache bằng phản hồi và xóa thao tác khỏi outbox.
 
-To learn more about React Native, take a look at the following resources:
+Các thao tác được xử lý theo thứ tự FIFO; lỗi mạng giữ thao tác để thử lại. Cách so sánh timestamp giả định đồng hồ thiết bị và server tương đối đồng bộ. Với hệ thống thực tế nên dùng version/ETag và kiểm tra xung đột phía server; GET rồi PATCH không phải giao dịch nguyên tử.
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+## GPA
+
+GPA = tổng(điểm hệ 4 × tín chỉ) / tổng tín chỉ đã có điểm.
+
+Môn F:
+- Vẫn tham gia mẫu số GPA.
+- Không tính vào tín chỉ tích lũy.
+
+Với dữ liệu mẫu:
+- Tổng tín chỉ đã có điểm: 16.
+- Tín chỉ tích lũy: 13.
+- GPA hiển thị: 2.47.
+
+## Kiểm thử
+
+1. Xóa dữ liệu ứng dụng, tắt json-server, mở app:
+   Có lỗi và nút Thử lại, không crash.
+
+2. Chạy server, mở app và chờ dữ liệu tải.
+   Bật chế độ máy bay rồi khởi động lại:
+   Vẫn có cache, banner offline và thời gian cập nhật.
+
+3. Offline: đổi hai bài tập sang đã xong, thêm một bài mới:
+   Giao diện cập nhật và có nhãn Chưa đồng bộ.
+
+4. Bật mạng:
+   Outbox gửi tuần tự; nhãn biến mất; db.json được cập nhật.
+
+5. Offline sửa họ tên.
+   Trên máy tính sửa fullName của students/1 và đặt updatedAt
+   mới hơn thời điểm thao tác offline.
+   Bật mạng:
+   Dữ liệu server thắng và có thông báo xung đột.
+
+6. Tìm tên môn không tồn tại:
+   Hiển thị trạng thái rỗng.
+
+7. Kéo xuống ở các danh sách:
+   Hiện refreshing và tải lại dữ liệu.
+
+Để thử thêm bài tập, nhập hạn nộp ở tương lai theo giờ địa phương:
+dd/MM/yyyy HH:mm.
+
+Ứng dụng minh họa hồ sơ students/1.
+Không bao gồm đăng nhập hoặc phân quyền nhiều sinh viên.

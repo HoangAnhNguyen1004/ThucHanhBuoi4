@@ -1,0 +1,20 @@
+export const R = Object.freeze({
+    HomeTab: 'HomeTab',
+    CourseTab: 'CourseTab',
+    ScheduleTab: 'ScheduleTab',
+    AssignmentTab: 'AssignmentTab',
+    ProfileTab: 'ProfileTab',
+
+    Home: 'Home',
+    CourseList: 'CourseList',
+    CourseDetail: 'CourseDetail',
+    Schedule: 'Schedule',
+    SessionDetail: 'SessionDetail',
+    AssignmentList: 'AssignmentList',
+    AssignmentDetail: 'AssignmentDetail',
+    AssignmentForm: 'AssignmentForm',
+    Profile: 'Profile',
+    EditProfile: 'EditProfile',
+    GradeList: 'GradeList',
+    GradeDetail: 'GradeDetail',
+});
